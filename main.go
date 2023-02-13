@@ -21,7 +21,6 @@ const (
 )
 
 var (
-	auth  = spotifyauth.New(spotifyauth.WithRedirectURL(redirectURI), spotifyauth.WithScopes(spotifyauth.ScopeUserReadPlaybackState, spotifyauth.ScopeUserModifyPlaybackState))
 	ch    = make(chan *oauth2.Token)
 	state = "abc123"
 )
@@ -46,15 +45,7 @@ func tokenPath() (string, error) {
 	return filepath.Join(mDir, ".token_cache"), nil
 }
 
-func confPath() (string, error) {
-	mDir, err := mujifyDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(mDir, ".config.yml"), nil
-}
-
-func fetchToken(ctx context.Context) (*oauth2.Token, error) {
+func fetchToken(ctx context.Context, auth *spotifyauth.Authenticator) (*oauth2.Token, error) {
 	var token *oauth2.Token
 
 	tPath, err := tokenPath()
@@ -62,7 +53,7 @@ func fetchToken(ctx context.Context) (*oauth2.Token, error) {
 		return nil, err
 	}
 	if _, err := os.Stat(tPath); err != nil {
-		if token, err = authenticate(ctx); err != nil {
+		if token, err = authenticate(ctx, auth); err != nil {
 			return nil, err
 		}
 	} else {
@@ -95,8 +86,17 @@ func updateToken(client *spotify.Client) error {
 	return nil
 }
 
-func newClient(ctx context.Context) (*spotify.Client, error) {
-	token, err := fetchToken(ctx)
+func newClient(ctx context.Context, conf *Conf) (*spotify.Client, error) {
+	auth := spotifyauth.New(
+		spotifyauth.WithClientID(conf.ID),
+		spotifyauth.WithClientSecret(conf.Secret),
+		spotifyauth.WithRedirectURL(redirectURI),
+		spotifyauth.WithScopes(
+			spotifyauth.ScopeUserReadPlaybackState,
+			spotifyauth.ScopeUserModifyPlaybackState,
+		),
+	)
+	token, err := fetchToken(ctx, auth)
 	if err != nil {
 		return nil, err
 	}
@@ -107,18 +107,20 @@ func newClient(ctx context.Context) (*spotify.Client, error) {
 	return client, nil
 }
 
-func authHandler(w http.ResponseWriter, r *http.Request) {
-	token, err := auth.Token(r.Context(), state, r)
-	if err != nil {
-		http.Error(w, "Couldn't get token", http.StatusForbidden)
-		log.Fatal(err)
+func authHandler(auth *spotifyauth.Authenticator) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		token, err := auth.Token(r.Context(), state, r)
+		if err != nil {
+			http.Error(w, "Couldn't get token", http.StatusForbidden)
+			log.Fatal(err)
+		}
+		ch <- token
+		fmt.Fprintf(w, "Login Completed!")
 	}
-	ch <- token
-	fmt.Fprintf(w, "Login Completed!")
 }
 
-func authenticate(ctx context.Context) (*oauth2.Token, error) {
-	http.HandleFunc("/callback", authHandler)
+func authenticate(ctx context.Context, auth *spotifyauth.Authenticator) (*oauth2.Token, error) {
+	http.HandleFunc("/callback", authHandler(auth))
 	go func() {
 		if err := http.ListenAndServe(":8080", nil); err != nil {
 			log.Fatal(err)
@@ -131,10 +133,15 @@ func authenticate(ctx context.Context) (*oauth2.Token, error) {
 }
 
 func play(ctx *cli.Context) error {
-	client, err := newClient(ctx.Context)
+	conf, err := newConf()
 	if err != nil {
 		return err
 	}
+	client, err := newClient(ctx.Context, conf)
+	if err != nil {
+		return err
+	}
+
 	u := spotify.URI(mujiURI)
 	opt := &spotify.PlayOptions{
 		PlaybackContext: &u,
