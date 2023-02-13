@@ -17,6 +17,7 @@ import (
 
 const (
 	redirectURI = "http://localhost:8080/callback"
+	mujiURI     = "spotify:artist:67J1KP70RqsL6uAIXkscKE"
 )
 
 var (
@@ -134,8 +135,11 @@ func play(ctx *cli.Context) error {
 	if err != nil {
 		return err
 	}
-	mujiURI := spotify.URI("spotify:artist:67J1KP70RqsL6uAIXkscKE")
-	if err = client.PlayOpt(ctx.Context, &spotify.PlayOptions{PlaybackContext: &mujiURI}); err != nil {
+	u := spotify.URI(mujiURI)
+	opt := &spotify.PlayOptions{
+		PlaybackContext: &u,
+	}
+	if err = client.PlayOpt(ctx.Context, opt); err != nil {
 		return err
 	}
 	return nil
