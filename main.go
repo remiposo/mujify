@@ -155,7 +155,7 @@ func play(ctx *cli.Context) error {
 func main() {
 	app := &cli.App{
 		Name:   "mujify",
-		Usage:  "Play MUJI BGM at random",
+		Usage:  "Play MUJI BGM on spotify",
 		Action: play,
 	}
 	if err := app.Run(os.Args); err != nil {
